@@ -1,0 +1,124 @@
+NOVA2指南:使用前激活环境 conda activate nova2_lerobot
+3.完整深度学习训练流程:加载数据集->转化为tensor->正向传播->计算loss->反向传播->更新梯度->重复,放到具身智能: → 机器人与相机标定 → 遥操作采集数据 → 数据清洗与格式转换 → 构建训练集/验证集 → 选择预训练 VLA 模型 → 微调训练 → 离线评估 → 真机推理 → 失败案例回收 → 再训练与部署
+4.离线评估流程: 读取验证图像和状态→构造模型输入→模型预测7维动作→取第7维夹爪输出→扫描阈值→计算误张开率和误闭合率
+5.nova2常见模式: 
+6.操控机械臂但是不不录制数据集:
+cd "/home/jjk/桌面/Project/lerobot-main" && conda run --no-capture-output -n nova2_lerobot lerobot-teleoperate --robot.type=dobot_nova2 --robot.host=192.168.5.1 --robot.startup_on_connect=false --robot.control_mode=servop --robot.speed_factor=30 --robot.max_xyz_step_mm=1.0 --robot.max_rot_step_deg=0.20 --robot.pose_limits='[[-330,300],[-540,-280],[50,210],[-360,360],[-360,360],[-360,360]]' --robot.enable_gripper=true --robot.gripper_max_width=100 --robot.gripper_force_percent=10 --teleop.type=dobot_nova2_xbox --teleop.control_style=smooth --teleop.xyz_step=1.0 --teleop.rot_step=0.20 --teleop.turbo_multiplier=1 --fps=30 --display_data=false
+7.操控机械臂且录制数据集: 数据集存放于: /home/jjk/dobot_nova2_project/datasets/
+WRIST_INDEX=0; FRONT_INDEX=2; STAMP="$(date +%Y%m%d_%H%M%S)"; ROOT="/home/jjk/dobot_nova2_project/datasets/nova2_gamepad_6dof_raw_${STAMP}"; cd "/home/jjk/桌面/Project/lerobot-main" && echo "dataset_root=$ROOT" && conda run --no-capture-output -n nova2_lerobot lerobot-record --robot.type=dobot_nova2 --robot.host=192.168.5.1 --robot.startup_on_connect=false --robot.control_mode=servop --robot.speed_factor=30 --robot.max_xyz_step_mm=1.0 --robot.max_rot_step_deg=0.20 --robot.pose_limits='[[-330,300],[-540,-280],[50,210],[-360,360],[-360,360],[-360,360]]' --robot.enable_gripper=true --robot.gripper_max_width=100 --robot.gripper_force_percent=10 --robot.cameras="{wrist: {type: opencv, index_or_path: ${WRIST_INDEX}, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: ${FRONT_INDEX}, width: 640, height: 480, fps: 30}}" --teleop.type=dobot_nova2_xbox --teleop.control_style=smooth --teleop.xyz_step=1.0 --teleop.rot_step=0.20 --teleop.turbo_multiplier=1 --dataset.repo_id="local/nova2_gamepad_6dof_raw_${STAMP}" --dataset.root="$ROOT" --dataset.single_task="抓取黄色方块并放到目标区域" --dataset.num_episodes=3 --dataset.episode_time_s=86400 --dataset.reset_time_s=86400 --dataset.fps=20 --dataset.num_image_writer_processes=2 --dataset.num_image_writer_threads_per_camera=2 --dataset.push_to_hub=false --display_data=false --play_sounds=false
+ 录制条数: --dataset.num_episodes=5 ;
+单条最长时间: --dataset.episode_time_s=60
+任务名称: --dataset.single_task="抓取黄色方块并放到目标区域" ;相机编号: WRIST_INDEX=0
+FRONT_INDEX=2
+一键复位:不录制直接执行该命令,录制的时候按B后执行该命令
+"/home/jjk/dobot_nova2_project/scripts/nova2_home.sh"
+8.用键盘采集数据,只能在xyz rz同一时间输出一个方向,不适合数据采集,遂改为手柄收集
+9.机械臂控制mode命令
+9.1清除警报:
+conda run --no-capture-output -n nova2_lerobot python - <<'PY'
+import socket
+import time
+with socket.create_connection(("192.168.5.1", 29999), timeout=3) as sock:
+    sock.settimeout(3)
+    for cmd in ("ClearError()", "GetErrorID()", "RobotMode()"):
+        sock.sendall(cmd.encode("ascii"))
+        time.sleep(0.5)
+        print(cmd, repr(sock.recv(4096)))
+PY
+9.2 上电
+conda run --no-capture-output -n nova2_lerobot python - <<'PY'
+import socket
+import time
+with socket.create_connection(("192.168.5.1", 29999), timeout=3) as sock:
+    sock.settimeout(3)
+    for cmd, delay in (("PowerOn()", 3.0), ("RobotMode()", 0.5)):
+        sock.sendall(cmd.encode("ascii"))
+        time.sleep(delay)
+        print(cmd, repr(sock.recv(4096)))
+PY
+9.3 enable
+conda run --no-capture-output -n nova2_lerobot python - <<'PY'
+import socket
+import time
+with socket.create_connection(("192.168.5.1", 29999), timeout=3) as sock:
+    sock.settimeout(3)
+    for cmd, delay in (("EnableRobot()", 2.0), ("RobotMode()", 0.5), ("GetErrorID()", 0.5)):
+        sock.sendall(cmd.encode("ascii"))
+        time.sleep(delay)
+        print(cmd, repr(sock.recv(4096)))
+PY
+9.4 从模式7  10 11 恢复到 5(enable)
+conda run --no-capture-output -n nova2_lerobot python - <<'PY'
+import re
+import socket
+import time
+HOST = "192.168.5.1"
+PORT = 29999
+def send(sock, cmd):
+    sock.sendall(cmd.encode("ascii"))
+    time.sleep(0.5)
+    reply = sock.recv(4096)
+    print(cmd, repr(reply))
+    if not reply:
+        raise RuntimeError(f"{cmd} 收到空回复")
+    return reply
+def parse_mode(reply):
+    text = reply.decode("utf-8", errors="replace")
+    match = re.search(r"\{(\d+)\}", text)
+    if not match:
+        raise RuntimeError(f"无法解析RobotMode：{text!r}")
+    return int(match.group(1))
+with socket.create_connection((HOST, PORT), timeout=3) as sock:
+    sock.settimeout(3)
+    mode = parse_mode(send(sock, "RobotMode()"))
+    if mode in (7, 10, 11):
+        send(sock, "Stop()")
+        time.sleep(1)
+    send(sock, "ClearError()")
+    mode = parse_mode(send(sock, "RobotMode()"))
+    if mode in (1, 2, 3):
+        send(sock, "PowerOn()")
+        time.sleep(3)
+        mode = parse_mode(send(sock, "RobotMode()"))
+    if mode == 4:
+        send(sock, "EnableRobot()")
+        time.sleep(2)
+    deadline = time.monotonic() + 10
+    while True:
+        mode = parse_mode(send(sock, "RobotMode()"))
+        if mode == 5:
+            break
+        if time.monotonic() >= deadline:
+            send(sock, "GetErrorID()")
+            raise RuntimeError(f"未能恢复到模式5，当前模式={mode}")
+        time.sleep(0.5)
+    send(sock, "GetErrorID()")
+    print("restore_mode5=PASS")
+PY
+11.强制终止录制进程
+PID=27000; echo "===== 终止前 ====="; ps -o pid,ppid,stat,etime,cmd -p "$PID"; pkill -TERM -P "$PID" 2>/dev/null || true; kill -TERM "$PID" 2>/dev/null || true; sleep 5; if kill -0 "$PID" 2>/dev/null; then echo "进程未响应SIGTERM，执行SIGKILL"; pkill -KILL -P "$PID" 2>/dev/null || true; kill -KILL "$PID" 2>/dev/null || true; sleep 2; fi; echo "===== 终止后 ====="; ps -p "$PID" -o pid,ppid,stat,etime,cmd || true
+12.清理相关残留进程
+pkill -TERM -f '[/]lerobot-record' 2>/dev/null || true; pkill -TERM -f '[/]lerobot-teleoperate' 2>/dev/null || true; sleep 3; pkill -KILL -f '[/]lerobot-record' 2>/dev/null || true; pkill -KILL -f '[/]lerobot-teleoperate' 2>/dev/null || true; sleep 2
+检查
+echo "===== LeRobot残留 ====="; pgrep -af 'lerobot-record|lerobot-teleoperate' || true; echo "===== 相机占用 ====="; fuser -v /dev/video0 /dev/video2 2>/dev/null || true; echo "===== Nova2连接 ====="; ss -tnp | grep -E '192\./null || true; echo "===== Nova2连接 ====="; ss -tnp168\.5\.1:(29999|30004)' || true
+13.录制流程
+Recording episode 0 → 操作机械臂 → 按 A → 立即停止向数据集写入 → 显示 Reset the environment → 人工归位积木，此阶段不保存视频和动作 → 再按 A → 保存 episode 0 → 显示 Recording episode 1 → 开始下一条录制
+遇到的问题:
+1. 问题:原始夹爪标签使用稀疏事件语义-1/0/+1，其中绝大多数帧为0，导致模型倾向于一直输出接近0；
+尝试解决方法:把夹爪的loss ✖5,看看训练效果
+结果:不太行 用键盘录制数据太差了 换手柄试试
+2..摄像头帧率30fps的情况下,机械臂帧率不能调30,会报错
+报错原因是: 两台相机本身工作正常，没有丢帧或打开失败, 但640×480双相机读取已经占用了大部分循环预算, 问题属于端到端负载不足,具体为
+每一帧里面需要做1. 读取机械臂关节角、TCP位姿和夹爪状态 2. 读取手柄输入 3. 读取手腕相机 4. 读取正面相机 5. 生成本轮动作 6. 发送ServoP指令 7. 组织状态、动作和两张图像 8. 将数据交给数据集写入器 9. 等待到下一帧
+双相机读取已经占用了大部分时间预算，再叠加Nova2网络通信和数据处理，总耗时超过了50 ms
+解决方法:cpu(cpu型号为Intel(R) Core(TM) i9-14900K)瓶颈了,这个没法提升,要么降分辨率为320×240,要么,就降低录制帧率为10fps
+先试试分辨率为320*240的训练效果,如果效果不行只能降低帧率
+后续:相机驱动写死了分辨率 没法降分辨率,降录制帧率到10数据集采集效果太差
+新方法:增加两个参数, --dataset.num_image_writer_processes=2 --dataset.num_image_writer_threads_per_camera=2
+将录制流程改为: 
+主进程： 读取机器人和相机 → 发送ServoP → 构造帧 → 将图像任务交给后台写入器 → 尽快进入下一轮 
+后台进程： 接收图像任务 → 并行处理图像 → 写入临时图像或缓存
+即将接受和处理图像的任务和录制并运行机械臂解耦,缓解cpu压力
+3.用键盘采集数据,只能在xyz rz同一时间输出一个方向,不适合数据采集,遂改为手柄采集,手柄lr键位是缺失的,故重新调整了键位映射,具体为:
+左遥感控制:xy 右遥感控制:小臂 方向键上下:z轴 方向键左右:旋转爪子
+Lb Rb:关闭/打开爪子 缺点就是:1.控制z轴无法做到线性控制 2.控制爪子无法做到线性控制

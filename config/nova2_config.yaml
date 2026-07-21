@@ -1,0 +1,103 @@
+# ============================================================
+# Nova2 × LeRobot × StarVLA 项目配置文件
+# 适配服务器地址：192.168.0.130
+# ============================================================
+
+# ---- 机器人控制器 ----
+robot:
+  ip: "192.168.0.130"          # ★ 控制器 IP（原手册为 192.168.5.1）
+  dashboard_port: 29999         # Dashboard 命令端口
+  motion_port: 30004            # 运动控制端口
+  feedback_port: 30005          # 反馈数据端口
+
+# ---- Linux 主机网络 ----
+host:
+  ethernet_if: "enp4s0"         # 有线网卡接口名（Windows 下可能不同）
+  static_ip: "192.168.0.10"     # 主机静态 IP，需与控制器同网段
+  netmask: "255.255.255.0"
+
+# ---- 遥操作 ----
+teleop:
+  udp_host: "127.0.0.1"
+  udp_port: 18888
+
+# ---- 相机 ----
+cameras:
+  wrist: "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:7:1.0-video-index0"
+  front: "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:13:1.0-video-index0"
+  resolution: [640, 480]
+  record_fps: 10
+  input_fps: 30
+
+# ---- 夹爪 (Modbus Tool 485) ----
+gripper:
+  register_auto_mode: 40090
+  register_speed: 40010
+  register_force: 40001
+  register_target_width: 40000
+  register_position_feedback: 40005
+  speed: 10
+  force: 10
+  width_range: [0, 100]         # 0=闭合, 100=全开
+
+# ---- 数据采集 ----
+collection:
+  num_episodes: 10              # 每批采集条数
+  episode_timeout_s: 300        # 单条超时（秒），成功及时按 n
+  reset_time_s: 5               # 条间复位等待
+  fps: 10
+
+  # 动作限幅（正式采集配置）
+  action_limits:
+    delta_xyz_max: 1.0          # 平移每帧不超过 1.0 mm
+    delta_rot_max: 0.5          # 旋转每帧不超过 0.5°
+    gripper_max: 1.0            # 夹爪动作范围 -1/0/+1
+    speed_factor: 0.05          # 速度因子 5%
+
+  # 工作空间保护
+  pose_limits:
+    y_min: -560                 # Y 轴下限（mm），不得更负
+    # 实际安全位 SAFE_A TCP: [0.4264, -559.5232, 322.8317, ...]
+    # 接近 -560 时须谨慎
+
+# ---- 数据接口 ----
+data_interface:
+  state_dim: 13                 # 6关节 + 6 TCP + 1夹爪
+  action_dim: 7                 # delta_x/y/z + delta_rx/ry/rz + gripper
+  gripper_action_map:
+    close: -1
+    hold: 0
+    open: 1
+
+# ---- 安全 ----
+safety:
+  safe_a:
+    joints: [77.9857, 51.3401, 31.1298, 16.1389, -90.4004, 3.8710]
+    tcp: [0.4264, -559.5232, 322.8317, 171.4368, -0.9740, 164.2178]
+  # 严禁关闭奇异保护
+  disable_singularity_protection: false
+  error_codes:
+    27: "接近肘奇异点 — 停止、清错、关节插补回 SAFE_A"
+    17: "逆解无解 — 停止Y负方向，恢复安全位"
+
+# ---- 路径（Linux 目标机） ----
+paths:
+  lerobot_root: "/home/jjk/桌面/Project/lerobot-main"
+  nova2_plugin: "/home/jjk/桌面/Project/lerobot-main/lerobot_robot_dobot_nova2/src/lerobot_robot_dobot_nova2"
+  dobot_sdk: "/home/jjk/桌面/Project/dwlerobot-nova2xbox/TCP-IP-Python-V4-main/TCP-IP-Python-V4-main"
+  scripts_dir: "/home/jjk/dobot_nova2_project/scripts"
+  datasets_root: "/home/jjk/dobot_nova2_project/datasets"
+  starvla_root: "/home/jjk/starVLA"
+  init_model: "/home/jjk/starVLA/playground/Pretrained_models/Qwen2.5-VL-GR00T-Nova2-init/checkpoints/steps_30000_nova2_init_model.safetensors"
+  conda_env: "nova2_lerobot"
+  conda_env_starvla: "starvla"
+
+# ---- StarVLA 训练 ----
+starvla:
+  model: "StarVLA/Qwen2.5-VL-GR00T-LIBERO-4in1"
+  state_dim: 13
+  action_dim: 7
+  action_horizon: 16
+  gpu: "RTX 4090 D (24GB VRAM)"
+  # 训练前必须：计算 Nova2 自己的统计量，不能用 LIBERO 的！
+  use_custom_stats: true

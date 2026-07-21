@@ -1,0 +1,33 @@
+# 1. 连接
+ssh jjk@192.168.0.138
+
+# 2. 激活环境 + 进目录
+conda activate nova2_lerobot
+cd ~/dobot_nova2_project/scripts
+
+# 3. 先确认 Nova2 在 Mode=5
+python -c "
+import sys; sys.path.insert(0,'/home/jjk/桌面/Project/dwlerobot-nova2xbox/TCP-IP-Python-V4-main/TCP-IP-Python-V4-main')
+from dobot_api import DobotApiDashboard
+import re
+d = DobotApiDashboard('192.168.5.1',29999)
+raw = str(d.RobotMode())
+m = re.search(r'\{(\d+)\}', raw)
+mode = int(m.group(1)) if m else -1
+print(f'Mode={mode}')
+if mode != 5:
+    d.ClearError()
+    import time; time.sleep(0.5)
+    d.EnableRobot()
+    time.sleep(2)
+    raw = str(d.RobotMode())
+    m = re.search(r'\{(\d+)\}', raw)
+    print(f'Mode={int(m.group(1)) if m else -1}')
+"
+
+# 4. 确认后跑
+python so101_leader_nova2_follower.py
+
+
+# 复位
+conda run -n nova2_lerobot python /home/jjk/dobot_nova2_project/scripts/nova2_home.py

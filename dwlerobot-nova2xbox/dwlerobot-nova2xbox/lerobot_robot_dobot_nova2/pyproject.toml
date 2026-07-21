@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_dobot_nova2"
+version = "0.1.0"
+description = "LeRobot robot and keyboard teleoperator plugin for DOBOT Nova2 using the official DOBOT TCP-IP Python SDK"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "lerobot>=0.5.1",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["lerobot_robot_dobot_nova2*"]
