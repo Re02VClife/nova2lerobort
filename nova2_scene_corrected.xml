@@ -1,0 +1,211 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="nova2_corrected">
+  <compiler angle="radian" eulerseq="xyz" autolimits="true" balanceinertia="true" boundinertia="1e-6" />
+
+  <visual>
+    <global offwidth="1920" offheight="1080" />
+  </visual>
+
+  <!-- ================================================================ -->
+  <!--  Mesh assets                                                      -->
+  <!-- ================================================================ -->
+  <asset>
+    <mesh name="part_001_BASE-PART1" file="meshes/part_001_BASE-PART1.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_002_BASE-PART2" file="meshes/part_002_BASE-PART2.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_003_BASE-PART3" file="meshes/part_003_BASE-PART3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_004_BASE-PART4" file="meshes/part_004_BASE-PART4.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_005_BASE_ASM" file="meshes/part_005_BASE_ASM.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_006_J1-PART1" file="meshes/part_006_J1-PART1.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_007_J1-PART2" file="meshes/part_007_J1-PART2.stl" scale="0.001 0.001 0.001" />
+    <!-- 材质：夹爪——外壳/连接件亮中性（真实腕部画面上部为亮中性色），手指红色（真机为红色） -->
+    <material name="mat_gripper" rgba="0.62 0.62 0.66 1" specular="0.5" shininess="0.4" />
+    <material name="mat_finger" rgba="0.68 0.10 0.10 1" specular="0.5" shininess="0.4" />
+    <material name="mat_pad" rgba="0.18 0.18 0.20 1" specular="0.3" shininess="0.3" />
+    <material name="mat_block" rgba="0.85 0.65 0.33 1" specular="0.35" shininess="0.3" />
+    <!-- 工作台棋盘格（360×360mm，每格45mm = 8×8） -->
+    <texture name="tex_checker" type="2d" file="meshes/checkerboard.png" />
+    <material name="mat_checker" texture="tex_checker" texrepeat="1 1" />
+  </asset>
+
+  <!-- ================================================================ -->
+  <!--  Defaults                                                         -->
+  <!-- ================================================================ -->
+  <default>
+    <default class="gripper_finger">
+      <geom type="box" rgba="0.3 0.3 0.35 1" material="mat_finger" solimp="0.998 0.998 0.001" solref="0.01 1" />
+    </default>
+    <default class="gripper_pad">
+      <geom type="box" rgba="0.2 0.2 0.25 1" material="mat_pad" solimp="0.995 0.995 0.001" solref="0.005 1" />
+    </default>
+  </default>
+
+  <!-- ================================================================ -->
+  <!--  Worldbody: Robot + Gripper                                       -->
+  <!-- ================================================================ -->
+  <worldbody>
+    <!-- 地面：暖棕（对标真机桌面，bg_rgb≈(161-174,132-155,88-117)） -->
+    <geom name="floor" type="plane" size="2 2 0.01" pos="0 0 -0.5" rgba="0.60 0.55 0.45 1" />
+
+    <!-- ================================================================ -->
+    <!--  Scene: table / yellow block / target area / lights / cameras    -->
+    <!--  坐标已按标定映射换算到 CAD 系：                                      -->
+    <!--    real = diag(-1,-1,1) * cad + T,  T=[3.7,17.1,133.9]mm          -->
+    <!--  真机目标：方块 real(50,-350,60)mm, 目标区 real(-120,-430,40)mm    -->
+    <!-- ================================================================ -->
+    <geom name="table" type="box" size="0.33 0.18 0.04" pos="0 0.47 -0.134" rgba="1 1 1 1" />
+    <!-- 目标区标记（纯视觉，无碰撞） -->
+    <geom name="target_area" type="box" size="0.06 0.06 0.003" pos="0.124 0.547 -0.091" rgba="0.85 0.68 0.26 0.9" contype="0" conaffinity="0" />
+    <!-- 工作台棋盘格（纯视觉，360×360mm，贴在工作台面上） -->
+    <geom name="checkerboard" type="box" size="0.18 0.18 0.001" pos="0.15 0.47 -0.093" material="mat_checker" contype="0" conaffinity="0" />
+    <!-- 左侧黑色中空盒子（250×210×60mm，壁厚1cm，开口向上，纯视觉无碰撞） -->
+    <body name="black_box" pos="-0.15 0.47 -0.094">
+      <geom name="bb_bottom" type="box" size="0.125 0.105 0.005" pos="0 0 0.005" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
+      <geom name="bb_wx1" type="box" size="0.005 0.105 0.03" pos="0.12 0 0.03" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
+      <geom name="bb_wx2" type="box" size="0.005 0.105 0.03" pos="-0.12 0 0.03" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
+      <geom name="bb_wy1" type="box" size="0.125 0.005 0.03" pos="0 0.10 0.03" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
+      <geom name="bb_wy2" type="box" size="0.125 0.005 0.03" pos="0 -0.10 0.03" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
+    </body>
+
+    <!-- 光照对标真机：平均亮度 ~135、有深阴影（ambient 低）、偏暖（r>g>b） -->
+    <light name="light_top" pos="0 0 2.2" dir="0 0 -1" diffuse="0.44 0.41 0.37" specular="0.70 0.70 0.70" ambient="0.05 0.05 0.04" castshadow="true" />
+    <light name="light_side" pos="1.2 -0.9 1.0" dir="-1 0.6 -0.7" diffuse="0.20 0.19 0.17" specular="0.20 0.20 0.20" castshadow="true" />
+
+    <!-- front：顶视俯瞰方块（CAD(0.004,0.367,0.666) 朝下看；MuJoCo 相机沿局部 -Z 看） -->
+    <camera name="front" pos="-0.3695 0.4185 0.7193" xyaxes="-0.0425 -0.9991 0.0000 0.9347 -0.0398 0.3533" fovy="45" resolution="448 448" />
+
+    <body name="base_link" pos="0 0 0">
+      <!-- 惯性主轴角度：原 ~14.5°绕Z，整理为 0°（平行） -->
+      <inertial pos="5.5574554e-05 0.011949846 -0.0027066529" mass="1.135867" quat="1 0 0 0" diaginertia="0.0023472678 0.0023336257 0.0015447317" />
+      <geom name="base_link_mesh_1" type="mesh" mesh="part_001_BASE-PART1" pos="1.144e-08 0.01427404 -0.06199172" euler="0 0 0" group="1" />
+
+      <body name="link_002" pos="8.0999999e-10 0.01227404 0.068101277">
+        <joint name="link_002_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-6.28 6.28" limited="true" actuatorfrcrange="-30 30" actuatorfrclimited="true" />
+        <!-- 惯性主轴角度：原 ~32.7°绕-X，整理为 -45°（45度倾斜） -->
+        <inertial pos="-4.520034e-06 0.021748712 0.064337408" mass="0.95795806" quat="0.9238795 -0.3826834 0 0" diaginertia="0.0021167779 0.0020719871 0.0010221815" />
+        <geom name="link_002_mesh_1" type="mesh" mesh="part_002_BASE-PART2" pos="1.063e-08 0.002 -0.130093" euler="0 0 0" group="1" />
+
+        <body name="link_003" pos="1.063e-08 0.119 0.087907003">
+          <joint name="link_003_joint" type="hinge" pos="0 0 0" axis="0 -1 0" range="-3.14 3.14" limited="true" actuatorfrcrange="-30 30" actuatorfrclimited="true" />
+          <!-- 惯性主轴角度：原 ~3.6°绕X，整理为 0°（平行） -->
+          <inertial pos="-4.0537553e-06 -0.025601457 0.15021428" mass="1.8897205" quat="1 0 0 0" diaginertia="0.026271504 0.026102222 0.0021416472" />
+          <geom name="link_003_mesh_1" type="mesh" mesh="part_003_BASE-PART3" pos="0 -0.117 -0.218" euler="0 0 0" group="1" />
+
+          <body name="link_004" pos="0 -0.0945 0.28">
+            <joint name="link_004_joint" type="hinge" pos="0 0 0" axis="0 1 0" range="-2.72 2.72" limited="true" actuatorfrcrange="-30 30" actuatorfrclimited="true" />
+            <!-- 惯性主轴角度：原 ~4.0°绕-X，整理为 0°（平行） -->
+            <inertial pos="-9.3879585e-06 -0.013504919 0.11812472" mass="1.1951648" quat="1 0 0 0" diaginertia="0.011437473 0.011296197 0.0010827299" />
+            <geom name="link_004_mesh_1" type="mesh" mesh="part_004_BASE-PART4" pos="0 -0.0225 -0.498" euler="0 0 0" group="1" />
+
+            <body name="link_005" pos="0 0.034 0.225">
+              <joint name="link_005_joint" type="hinge" pos="0 0 0" axis="0 -1 0" range="-6.28 6.28" limited="true" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+              <!-- 惯性主轴角度：原 ~42.6°绕-X，整理为 -45°（45度倾斜） -->
+              <inertial pos="-1.0063981e-05 0.038607034 0.022585956" mass="0.52638806" quat="0.9238795 -0.3826834 0 0" diaginertia="0.0008295969 0.00080949183 0.00036931871" />
+              <geom name="link_005_mesh_1" type="mesh" mesh="part_005_BASE_ASM" pos="0 -0.0565 -0.723" euler="0 0 0" group="1" />
+
+              <body name="link_006" pos="-1.6405419e-07 0.059 0.065">
+                <joint name="link_006_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-6.28 6.28" limited="true" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+                <!-- 惯性主轴角度：原 ~1.2°绕X，整理为 0°（平行） -->
+                <inertial pos="-4.1743409e-06 0.0015125196 0.04749804" mass="0.69662365" quat="1 0 0 0" diaginertia="0.0010959905 0.00058088801 0.00096766148" />
+                <geom name="link_006_mesh_1" type="mesh" mesh="part_006_J1-PART1" pos="1.6405419e-07 -0.1155 -0.788" euler="0 0 0" group="1" />
+
+                <body name="link_007" pos="0 0.0645 0.055">
+                  <joint name="link_007_joint" type="hinge" pos="0 0 0" axis="0 -1 0" range="-6.28 6.28" limited="true" actuatorfrcrange="-5 5" actuatorfrclimited="true" />
+                  <!-- 惯性主轴角度：原 ~19°绕-X，整理为 0°（平行） -->
+                  <inertial pos="1.5239872e-07 0.0045835589 0.0011272835" mass="0.15304162" quat="1 0 0 0" diaginertia="0.00001 0.00002477 0.00006248" />
+                  <geom name="link_007_mesh_1" type="mesh" mesh="part_007_J1-PART2" pos="1.6405e-07 -0.18 -0.843" euler="0 0 0" group="1" />
+
+                  <!-- ==================================================== -->
+                  <!--  Gripper: Nova2 Slave Hand (平行夹爪)                 -->
+                  <!-- ==================================================== -->
+                  <body name="gripper_base" pos="0 0 0" euler="1.571 3.141 1.571">
+                    <inertial pos="0 0 0.02" mass="0.35" diaginertia="0.00035 0.00040 0.00018" />
+                    <geom name="gripper_housing" type="box" size="0.03 0.04 0.04" pos="0 0 0" material="mat_gripper" />
+
+                    <!-- 左指: 斜向滑动——张开时横向分开+后缩4cm，闭合时靠拢+向前延申4cm(真机特性)。
+                         q=0.0721(开): 横向-60mm(垫片±50mm=100mm开口)+向后40mm；q=0(合): 靠拢且向前延申。
+                         轴(-0.8321, 0.5547, 0) 归一化 = (-0.06,+0.04)/0.0721 -->
+                    <body name="finger_left" pos="0 0 0.06">
+                      <joint name="finger_left_joint" type="slide" axis="-0.8321 0.5547 0" range="0 0.0721" limited="true" />
+                      <inertial pos="0 0 0.05" mass="0.08" diaginertia="1.2e-05 1.5e-05 6e-06" />
+                      <geom name="finger_left_bar" type="box" size="0.006 0.006 0.04" pos="0 0 0.03" material="mat_finger" />
+                      <geom name="finger_left_pad" type="box" size="0.006 0.008 0.002" pos="0.010 0 0.045" material="mat_pad" />
+                      <site name="finger_left_touch" type="box" size="0.006 0.008 0.002" pos="0.010 0 0.045" />
+                    </body>
+
+                    <!-- 右指: 斜向滑动，与左指镜像 -->
+                    <body name="finger_right" pos="0 0 0.06">
+                      <joint name="finger_right_joint" type="slide" axis="0.8321 0.5547 0" range="0 0.0721" limited="true" />
+                      <inertial pos="0 0 0.05" mass="0.08" diaginertia="1.2e-05 1.5e-05 6e-06" />
+                      <geom name="finger_right_bar" type="box" size="0.006 0.006 0.04" pos="0 0 0.03" material="mat_finger" />
+                      <geom name="finger_right_pad" type="box" size="0.006 0.008 0.002" pos="-0.010 0 0.045" material="mat_pad" />
+                      <site name="finger_right_touch" type="box" size="0.006 0.008 0.002" pos="-0.010 0 0.045" />
+                    </body>
+
+                    <site name="camera_mount" pos="0 0 0.07" euler="0 0 0" size="0.01" />
+                    <!-- tcp 仅作 IK 参考，透明不遮挡 wrist 相机 -->
+                    <site name="tcp" pos="0 0 0.09" size="0.004" rgba="1 0 0 0" />
+                    <!-- wrist：真机位置 —— 夹爪正前方、大俯角正视手指（避免闭合时遮挡）。
+                         前方=real -Y=局部 -y（gripper_base 局部 +y 是朝底座后方）。
+                         用户指定：前 10cm、上 -4cm（向下 4cm）、俯角 40°、fovy 50、夹爪 100mm -->
+                    <camera name="wrist" pos="0 -0.10 0.04" zaxis="0 -0.7660 -0.6428" fovy="50" resolution="640 480" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- ================================================================ -->
+    <!--  Yellow block: free body（可被抓取），放 worldbody 末尾使 qpos     -->
+    <!--  arm[0:6]、fingers[6:8]、block[8:15] 顺序保持不变                -->
+    <!-- ================================================================ -->
+    <body name="block" pos="0.004 0.437 -0.079">
+      <freejoint />
+      <geom name="block" type="box" size="0.03 0.03 0.015" material="mat_block" mass="0.06" />
+    </body>
+  </worldbody>
+
+  <!-- ================================================================ -->
+  <!--  Equality / Tendon / Actuators / Sensors / Keyframes            -->
+  <!-- ================================================================ -->
+  <!-- 注：两指镜像由脚本用同一 grip_target 分别驱动左右 motor 实现（等式约束会引发数值不稳定） -->
+
+
+  <actuator>
+    <motor name="act_J1" joint="link_002_joint" gear="1" ctrlrange="-30 30" ctrllimited="true" />
+    <motor name="act_J2" joint="link_003_joint" gear="1" ctrlrange="-30 30" ctrllimited="true" />
+    <motor name="act_J3" joint="link_004_joint" gear="1" ctrlrange="-30 30" ctrllimited="true" />
+    <motor name="act_J4" joint="link_005_joint" gear="1" ctrlrange="-10 10" ctrllimited="true" />
+    <motor name="act_J5" joint="link_006_joint" gear="1" ctrlrange="-10 10" ctrllimited="true" />
+    <motor name="act_J6" joint="link_007_joint" gear="1" ctrlrange="-5  5"  ctrllimited="true" />
+    <motor name="act_gripper" joint="finger_left_joint" gear="1" ctrlrange="-50 50" ctrllimited="true" />
+    <motor name="act_gripper_r" joint="finger_right_joint" gear="1" ctrlrange="-50 50" ctrllimited="true" />
+  </actuator>
+
+  <sensor>
+    <jointpos name="sens_J1_pos" joint="link_002_joint" />
+    <jointvel name="sens_J1_vel" joint="link_002_joint" />
+    <jointpos name="sens_J2_pos" joint="link_003_joint" />
+    <jointvel name="sens_J2_vel" joint="link_003_joint" />
+    <jointpos name="sens_J3_pos" joint="link_004_joint" />
+    <jointvel name="sens_J3_vel" joint="link_004_joint" />
+    <jointpos name="sens_J4_pos" joint="link_005_joint" />
+    <jointvel name="sens_J4_vel" joint="link_005_joint" />
+    <jointpos name="sens_J5_pos" joint="link_006_joint" />
+    <jointvel name="sens_J5_vel" joint="link_006_joint" />
+    <jointpos name="sens_J6_pos" joint="link_007_joint" />
+    <jointvel name="sens_J6_vel" joint="link_007_joint" />
+    <jointpos name="sens_gripper_pos" joint="finger_left_joint" />
+    <touch name="sens_left_touch"  site="finger_left_touch"  />
+    <touch name="sens_right_touch" site="finger_right_touch" />
+  </sensor>
+
+  <keyframe>
+    <!-- home = 真机 home 关节角 [41,39.6,144.5,-99.2,-88.9,-40.1]° 经 SIGN=[1,-1,1,-1,1,1] 翻转后
+         的 CAD qpos（rad）+ 夹爪全开；脚本里 real = SIGN*cad_qpos 读回真机关节 -->
+    <key name="home" qpos="0.7156 -0.6912 2.5220 1.7312 -1.5518 -0.6999 0.0721 0.0721" />
+    <key name="grasp" qpos="0 0 0 0 0 0 0.005 0.005" />
+  </keyframe>
+</mujoco>
