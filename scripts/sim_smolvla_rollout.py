@@ -57,6 +57,8 @@ GRIPPER_OPEN_M = 0.0721    # 手指全开行程：横向60mm(垫片±50mm=100mm�
 GRIP_KP = 500.0            # 夹爪 PD 刚度（N/m）
 GRIP_KD = 2.0 * np.sqrt(GRIP_KP * 0.08)  # 手指质量 0.08kg，临界阻尼
 GRIP_FRC = 50.0            # 夹爪力矩限幅
+GRIP_CLOSE_Q = 0.050       # 闭合目标: 指缝63mm(>方块60mm)，避免手指穿入方块
+GRIP_RAMP = 0.0007         # 每控制周期 grip_target 移动量 -> 约1.6s 缓慢闭合
 IK_LAMBDA = 0.01           # DLS 阻尼
 IK_ITERS = 3
 # 自适应临界阻尼 PD：kp = OMEGA²·I_eff, kd = 2ζ·sqrt(kp·I_eff)，I_eff 取 qM 对角（真实惯性）
@@ -64,10 +66,10 @@ OMEGA = 120.0   # rad/s 目标带宽 -> ~37ms 收敛，ω·dt=0.24 < 0.3 稳定
 ZETA = 0.9
 # 关节力矩限幅（XML 里在 joint 上用 actuatorfrcrange 声明，motor 执行器本身不限幅）
 FRC_LIMITS = np.array([30.0, 30.0, 30.0, 10.0, 10.0, 5.0])
-POSE_LIMITS_MM = np.array([[-380, 380], [-560, -150], [0, 300],
+POSE_LIMITS_MM = np.array([[-380, 380], [-620, -150], [0, 300],
                            [-360, 360], [-360, 360], [-360, 360]])
 
-TASK = "抓取黄色方块并放到目标区域"
+TASK = "把黄色方块放进黑色盒子"
 
 # 相机后处理（对标真机相机特性）
 WRIST_WB_ENABLE = True    # 真机腕部相机自动曝光/白平衡（保留红色夹爪，中和偏暖背景）
@@ -91,6 +93,28 @@ def wrist_camera_wb(img: np.ndarray) -> np.ndarray:
 # ================================================================
 # 旋转工具
 # ================================================================
+def mat_to_quat(R: np.ndarray) -> np.ndarray:
+    """旋转矩阵 -> quat [w,x,y,z]（MuJoCo free joint 约定）。"""
+    R = np.asarray(R, dtype=float)
+    tr = np.trace(R)
+    if tr > 0.0:
+        s = np.sqrt(tr + 1.0) * 2.0
+        q = np.array([0.25 * s, (R[2, 1] - R[1, 2]) / s,
+                      (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s])
+    else:
+        i = int(np.argmax(np.diag(R)))
+        j = (i + 1) % 3
+        k = (j + 1) % 3
+        s = np.sqrt(1.0 + R[i, i] - R[j, j] - R[k, k]) * 2.0
+        q = np.zeros(4)
+        q[i + 1] = 0.25 * s
+        q[0] = (R[k, j] - R[j, k]) / s
+        q[j + 1] = (R[j, i] + R[i, j]) / s
+        q[k + 1] = (R[k, i] + R[i, k]) / s
+    q /= np.linalg.norm(q)
+    return q
+
+
 def rot_to_zyx_euler(R: np.ndarray) -> np.ndarray:
     """R = Rz(y)*Ry(p)*Rx(r)，返回 [r,p,y] 度。"""
     r = np.arctan2(R[2, 1], R[2, 2])
@@ -151,7 +175,8 @@ class SimNova2:
         self.default_block_pos_cad = np.array([0.004, 0.437, -0.079])  # 桌面上的默认位置(工作台36x66x8,机械臂远离10cm)
         # 运动学吸附（与训练数据一致）：闭爪且方块在 TCP 附近时吸附
         self.block_attached = False
-        self.grasp_offset_cad = None
+        self.grasp_offset_local = None
+        self.grasp_rot_local = None
 
     def reset(self):
         mujoco.mj_resetDataKeyframe(self.model, self.data, self.model.key("home").id)
@@ -159,7 +184,8 @@ class SimNova2:
         self.grip_target = GRIPPER_OPEN_M  # 夹爪初始张开
         self.set_block_pos_cad(self.default_block_pos_cad)  # 方块放回桌面默认位置
         self.block_attached = False
-        self.grasp_offset_cad = None
+        self.grasp_offset_local = None
+        self.grasp_rot_local = None
         mujoco.mj_forward(self.model, self.data)
         self.q_target = self.data.qpos[:6].copy()
 
@@ -206,6 +232,47 @@ class SimNova2:
         self.data.qvel[bd:bd + 6] = 0.0
         mujoco.mj_forward(self.model, self.data)
 
+    def set_block_pose_cad(self, pos_cad: np.ndarray, quat: np.ndarray):
+        """设置方块位置 + 姿态（quat = [w,x,y,z]，CAD 系）。
+
+        供姿态随机（平放/侧立 + yaw）使用：位置与姿态同时写入 free joint qpos。
+        """
+        bq = self.block_qposadr
+        self.data.qpos[bq:bq + 3] = np.asarray(pos_cad, dtype=float)
+        self.data.qpos[bq + 3:bq + 7] = np.asarray(quat, dtype=float)
+        bd = self.block_dofadr
+        self.data.qvel[bd:bd + 6] = 0.0
+        mujoco.mj_forward(self.model, self.data)
+
+    def block_xmat(self) -> np.ndarray:
+        """方块世界( CAD )姿态矩阵 (3,3)。"""
+        return self.data.xmat[self.model.body("block").id].reshape(3, 3).copy()
+
+    def _compute_grip_close_q(self) -> float:
+        """按当前方块沿闭合方向( tcp 局部 x )的宽度自适应指缝目标。
+
+        指缝 = 2*宽度 + 3mm（不穿模的最小余量），再线性换算到手指 joint 目标
+        （已知 GRIP_CLOSE_Q=0.050 ↔ 指缝63mm）：平放60mm → 0.050；侧立窄边30mm → ≈0.026。
+        训练(记录)与推理共用，保证行为一致。
+        """
+        h = np.array([0.03, 0.03, 0.015])      # 方块半尺寸 (m)
+        R_blk = self.block_xmat()
+        _, mat_tcp = self.tcp_cad()
+        u = mat_tcp[:, 0]                      # 闭合方向 = tcp 局部 x（CAD 系）
+        extent = float(np.sum(h * np.abs(R_blk.T @ u)))
+        gap_m = 2.0 * extent + 0.003
+        q = GRIP_CLOSE_Q * gap_m / 0.063
+        return float(np.clip(q, 0.020, GRIPPER_OPEN_M))
+
+    def gripper_reached_close(self) -> bool:
+        """夹爪是否已闭到当前自适应指缝目标（供录制脚本判断 close 相位完成）。
+
+        要求手指已离开全开位（q < open-3mm），防止目标指缝偏大时第一拍误判完成。
+        """
+        q_close = self._compute_grip_close_q()
+        q = float(self.data.qpos[6])
+        return q <= q_close + 0.004 and q < GRIPPER_OPEN_M - 0.003
+
     def block_pos_cad(self) -> np.ndarray:
         return self.data.body("block").xpos.copy()
 
@@ -213,18 +280,22 @@ class SimNova2:
         return R_BASE @ (self.block_pos_cad() * 1000.0) + T_BASE
 
     def maybe_attach_block(self, action7: np.ndarray):
-        """与训练一致的运动学吸附：模型命令闭爪且方块在 TCP 附近时，方块跟随 TCP。"""
+        """与训练一致的运动学刚体吸附：模型命令闭爪且方块在 TCP 附近时，
+        方块跟随 TCP 平移，并保持与夹爪的相对姿态（侧立块不会被"啪"地竖回来）。"""
         grip = float(action7[6])
         if grip <= -GRIPPER_THRESHOLD and not self.block_attached:
-            block_cad = self.block_pos_cad()
-            tcp_cad = self.tcp_cad()[0]
-            if np.linalg.norm(block_cad - tcp_cad) < 0.08:   # 8cm 内视为抓住
-                self.grasp_offset_cad = block_cad - tcp_cad
+            tcp_pos, tcp_mat = self.tcp_cad()
+            if np.linalg.norm(self.block_pos_cad() - tcp_pos) < 0.08:   # 8cm 内视为抓住
+                self.grasp_offset_local = tcp_mat.T @ (self.block_pos_cad() - tcp_pos)
+                self.grasp_rot_local = tcp_mat.T @ self.block_xmat()
                 self.block_attached = True
         elif grip >= GRIPPER_THRESHOLD and self.block_attached:
             self.block_attached = False
-        if self.block_attached and self.grasp_offset_cad is not None:
-            self.set_block_pos_cad(self.tcp_cad()[0] + self.grasp_offset_cad)
+        if self.block_attached:
+            tcp_pos, tcp_mat = self.tcp_cad()
+            block_pos = tcp_pos + tcp_mat @ self.grasp_offset_local
+            R_blk = tcp_mat @ self.grasp_rot_local
+            self.set_block_pose_cad(block_pos, mat_to_quat(R_blk))
 
     # ---- IK ----
     def jacobian(self) -> np.ndarray:
@@ -275,10 +346,14 @@ class SimNova2:
 
         self.q_target = self.ik_to_q(target_pos_cad, target_mat_cad)
 
-        # 夹爪：阈值二值化 -> 更新 grip_target（开/合/保持）
+        # 夹爪：缓慢闭合到自适应指缝（按方块当前朝向的宽度，不穿模）；张开立即
         grip = float(action7[6])
-        if abs(grip) >= GRIPPER_THRESHOLD:
-            self.grip_target = GRIPPER_OPEN_M if grip > 0 else 0.0
+        if grip >= GRIPPER_THRESHOLD:
+            self.grip_target = GRIPPER_OPEN_M
+        elif grip <= -GRIPPER_THRESHOLD:
+            q_close = self._compute_grip_close_q()
+            if self.grip_target > q_close:
+                self.grip_target = max(q_close, self.grip_target - GRIP_RAMP)
 
         # 自适应临界阻尼 PD（手臂）+ 夹爪 PD + 重力补偿，力矩伺服 CONTROL_DT 时长
         n_sub = max(1, int(round(CONTROL_DT / self.model.opt.timestep)))

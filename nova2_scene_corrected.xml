@@ -1,6 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <mujoco model="nova2_corrected">
   <compiler angle="radian" eulerseq="xyz" autolimits="true" balanceinertia="true" boundinertia="1e-6" />
+  <option timestep="0.001" />
 
   <visual>
     <global offwidth="1920" offheight="1080" />
@@ -25,6 +26,7 @@
     <!-- 工作台棋盘格（360×360mm，每格45mm = 8×8） -->
     <texture name="tex_checker" type="2d" file="meshes/checkerboard.png" />
     <material name="mat_checker" texture="tex_checker" texrepeat="1 1" />
+    <material name="mat_table" rgba="1 1 1 1" />
   </asset>
 
   <!-- ================================================================ -->
@@ -52,23 +54,24 @@
     <!--    real = diag(-1,-1,1) * cad + T,  T=[3.7,17.1,133.9]mm          -->
     <!--  真机目标：方块 real(50,-350,60)mm, 目标区 real(-120,-430,40)mm    -->
     <!-- ================================================================ -->
-    <geom name="table" type="box" size="0.33 0.18 0.04" pos="0 0.47 -0.134" rgba="1 1 1 1" />
+    <geom name="table" type="box" size="0.33 0.18 0.04" pos="0 0.47 -0.134" material="mat_table" friction="3.0 0.01 0.001" />
     <!-- 目标区标记（纯视觉，无碰撞） -->
-    <geom name="target_area" type="box" size="0.06 0.06 0.003" pos="0.124 0.547 -0.091" rgba="0.85 0.68 0.26 0.9" contype="0" conaffinity="0" />
+    <!-- 目标区=黑色盒子（右侧），金色薄片已删除 -->
     <!-- 工作台棋盘格（纯视觉，360×360mm，贴在工作台面上） -->
-    <geom name="checkerboard" type="box" size="0.18 0.18 0.001" pos="0.15 0.47 -0.093" material="mat_checker" contype="0" conaffinity="0" />
+    <geom name="checkerboard" type="box" size="0.18 0.18 0.001" pos="0.15 0.47 -0.093" material="mat_checker" />
     <!-- 左侧黑色中空盒子（250×210×60mm，壁厚1cm，开口向上，纯视觉无碰撞） -->
     <body name="black_box" pos="-0.15 0.47 -0.094">
-      <geom name="bb_bottom" type="box" size="0.125 0.105 0.005" pos="0 0 0.005" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
-      <geom name="bb_wx1" type="box" size="0.005 0.105 0.03" pos="0.12 0 0.03" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
-      <geom name="bb_wx2" type="box" size="0.005 0.105 0.03" pos="-0.12 0 0.03" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
-      <geom name="bb_wy1" type="box" size="0.125 0.005 0.03" pos="0 0.10 0.03" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
-      <geom name="bb_wy2" type="box" size="0.125 0.005 0.03" pos="0 -0.10 0.03" rgba="0.10 0.10 0.10 1" contype="0" conaffinity="0" />
+      <geom name="bb_bottom" type="box" size="0.125 0.105 0.005" pos="0 0 0.005" rgba="0.10 0.10 0.10 1" />
+      <geom name="bb_wx1" type="box" size="0.005 0.105 0.03" pos="0.12 0 0.03" rgba="0.10 0.10 0.10 1" />
+      <geom name="bb_wx2" type="box" size="0.005 0.105 0.03" pos="-0.12 0 0.03" rgba="0.10 0.10 0.10 1" />
+      <geom name="bb_wy1" type="box" size="0.125 0.005 0.03" pos="0 0.10 0.03" rgba="0.10 0.10 0.10 1" />
+      <geom name="bb_wy2" type="box" size="0.125 0.005 0.03" pos="0 -0.10 0.03" rgba="0.10 0.10 0.10 1" />
     </body>
 
-    <!-- 光照对标真机：平均亮度 ~135、有深阴影（ambient 低）、偏暖（r>g>b） -->
-    <light name="light_top" pos="0 0 2.2" dir="0 0 -1" diffuse="0.44 0.41 0.37" specular="0.70 0.70 0.70" ambient="0.05 0.05 0.04" castshadow="true" />
-    <light name="light_side" pos="1.2 -0.9 1.0" dir="-1 0.6 -0.7" diffuse="0.20 0.19 0.17" specular="0.20 0.20 0.20" castshadow="true" />
+    <!-- 光照对标真机：平均亮度 ~135、漫射光（高 ambient 柔和、无硬阴影）、偏暖（r>g>b） -->
+    <light name="light_top" pos="0 0 2.2" dir="0 0 -1" diffuse="0.16 0.15 0.13" specular="0.10 0.10 0.10" ambient="0.24 0.23 0.20" castshadow="false" />
+    <light name="light_side" pos="1.2 -0.9 1.0" dir="-1 0.6 -0.7" diffuse="0.08 0.07 0.07" specular="0.03 0.03 0.03" castshadow="false" />
+    <light name="light_fill" pos="-1.2 -0.6 1.4" dir="1 0.4 -0.8" diffuse="0.06 0.05 0.05" specular="0.02 0.02 0.02" ambient="0.10 0.09 0.08" castshadow="false" />
 
     <!-- front：顶视俯瞰方块（CAD(0.004,0.367,0.666) 朝下看；MuJoCo 相机沿局部 -Z 看） -->
     <camera name="front" pos="-0.3695 0.4185 0.7193" xyaxes="-0.0425 -0.9991 0.0000 0.9347 -0.0398 0.3533" fovy="45" resolution="448 448" />
@@ -128,7 +131,7 @@
                       <joint name="finger_left_joint" type="slide" axis="-0.8321 0.5547 0" range="0 0.0721" limited="true" />
                       <inertial pos="0 0 0.05" mass="0.08" diaginertia="1.2e-05 1.5e-05 6e-06" />
                       <geom name="finger_left_bar" type="box" size="0.006 0.006 0.04" pos="0 0 0.03" material="mat_finger" />
-                      <geom name="finger_left_pad" type="box" size="0.006 0.008 0.002" pos="0.010 0 0.045" material="mat_pad" />
+                      <geom name="finger_left_pad" type="box" size="0.006 0.008 0.002" pos="0.010 0 0.045" material="mat_pad" friction="3.0 0.01 0.001" solref="0.005 1" solimp="0.99 0.995 0.001" />
                       <site name="finger_left_touch" type="box" size="0.006 0.008 0.002" pos="0.010 0 0.045" />
                     </body>
 
@@ -137,7 +140,7 @@
                       <joint name="finger_right_joint" type="slide" axis="0.8321 0.5547 0" range="0 0.0721" limited="true" />
                       <inertial pos="0 0 0.05" mass="0.08" diaginertia="1.2e-05 1.5e-05 6e-06" />
                       <geom name="finger_right_bar" type="box" size="0.006 0.006 0.04" pos="0 0 0.03" material="mat_finger" />
-                      <geom name="finger_right_pad" type="box" size="0.006 0.008 0.002" pos="-0.010 0 0.045" material="mat_pad" />
+                      <geom name="finger_right_pad" type="box" size="0.006 0.008 0.002" pos="-0.010 0 0.045" material="mat_pad" friction="3.0 0.01 0.001" solref="0.005 1" solimp="0.99 0.995 0.001" />
                       <site name="finger_right_touch" type="box" size="0.006 0.008 0.002" pos="-0.010 0 0.045" />
                     </body>
 
@@ -163,7 +166,7 @@
     <!-- ================================================================ -->
     <body name="block" pos="0.004 0.437 -0.079">
       <freejoint />
-      <geom name="block" type="box" size="0.03 0.03 0.015" material="mat_block" mass="0.06" />
+      <geom name="block" type="box" size="0.03 0.03 0.015" material="mat_block" mass="0.06" friction="3.0 0.01 0.001" solref="0.005 1" solimp="0.99 0.995 0.001" />
     </body>
   </worldbody>
 
